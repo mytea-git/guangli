@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../tools";
 import type { StreamDelta } from "./openai";
+import { ProviderApiError } from "./errors";
 
 export type AnthropicContentBlock =
   | { type: "text"; text: string }
@@ -50,7 +51,7 @@ export async function streamAnthropicCompletion(
 
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => "");
-    throw new Error(`模型接口返回 ${res.status}：${text.slice(0, 300)}`);
+    throw new ProviderApiError(`模型接口返回 ${res.status}：${text.slice(0, 300)}`);
   }
 
   const reader = res.body.getReader();
@@ -98,7 +99,7 @@ export async function streamAnthropicCompletion(
       } else if (json.type === "message_delta" && json.delta?.stop_reason) {
         onDelta({ finishReason: json.delta.stop_reason });
       } else if (json.type === "error") {
-        throw new Error(json.error?.message || "Anthropic 流式响应出错");
+        throw new ProviderApiError(json.error?.message || "Anthropic 流式响应出错");
       }
     }
   }

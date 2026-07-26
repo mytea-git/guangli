@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth/requireAuth";
+import { checkRateLimit, clientIpFrom } from "@/lib/auth/rateLimit";
 import { getAuthRecord, setPassword } from "@/lib/store/auth";
 import { verifyPassword } from "@/lib/auth/password";
 import { SESSION_COOKIE } from "@/lib/auth/session";
@@ -19,6 +20,16 @@ export async function PUT(req: NextRequest) {
   } catch (err) {
     if (err instanceof AuthError) return NextResponse.json({ error: "未授权" }, { status: 401 });
     throw err;
+  }
+
+  // 即使已经登录，改密码时校验"当前密码"这一步也不应该无限重试
+  // ——一个被劫持的会话不应该借此暴力猜测当前密码。
+  const rl = checkRateLimit(`change-password:${clientIpFrom(req)}`, { windowMs: 60_000, maxAttempts: 5 });
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "请求过于频繁，请稍后再试" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
   }
 
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));

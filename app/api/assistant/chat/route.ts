@@ -3,9 +3,11 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { requireAuth, AuthError } from "@/lib/auth/requireAuth";
+import { checkRateLimit, clientIpFrom } from "@/lib/auth/rateLimit";
 import { getSettings } from "@/lib/store/settings";
 import { getConversation, saveConversation } from "@/lib/assistant/store";
 import { runAssistant } from "@/lib/assistant/run";
+import { ProviderApiError } from "@/lib/assistant/providers/errors";
 import type { ChatMessage, Conversation } from "@/lib/assistant/types";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +29,16 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (err instanceof AuthError) return NextResponse.json({ error: "未授权" }, { status: 401 });
     throw err;
+  }
+
+  // 每次请求可能在工具调用循环里触发多次上游模型调用，限得比普通
+  // API 更紧一些：每 IP 每分钟 20 次。
+  const rl = checkRateLimit(`assistant-chat:${clientIpFrom(req)}`, { windowMs: 60_000, maxAttempts: 20 });
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "对话请求过于频繁，请稍后再试" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
   }
 
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
@@ -96,7 +108,11 @@ export async function POST(req: NextRequest) {
         send("done", { conversationId: updatedConv.id, title: updatedConv.title });
       } catch (err) {
         console.error("[assistant/chat]", err);
-        send("error", { message: (err as Error).message || "助手响应出错" });
+        // 只把"上游模型 API 报错"这类已知安全的错误原样透出去（对方的
+        // HTTP 状态码 + 响应摘要，帮助管理员排查自己的模型配置）；
+        // 其它未预期错误一律用通用文案，避免服务器内部路径/堆栈泄露。
+        const message = err instanceof ProviderApiError ? err.message : "助手响应出错，请查看服务端日志";
+        send("error", { message });
         // 即使模型调用失败，也把用户这条消息落盘，避免用户输入丢失。
         const updatedConv: Conversation = {
           ...conv,

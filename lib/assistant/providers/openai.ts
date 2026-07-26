@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "../tools";
+import { ProviderApiError } from "./errors";
 
 export interface OpenAIChatMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -60,7 +61,7 @@ export async function streamOpenAICompletion(
 
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => "");
-    throw new Error(`模型接口返回 ${res.status}：${text.slice(0, 300)}`);
+    throw new ProviderApiError(`模型接口返回 ${res.status}：${text.slice(0, 300)}`);
   }
 
   const reader = res.body.getReader();

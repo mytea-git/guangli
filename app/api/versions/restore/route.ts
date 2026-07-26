@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth/requireAuth";
+import { checkGeneralApiRateLimit } from "@/lib/auth/rateLimit";
 import { restoreVersion } from "@/lib/versions/store";
 import { PathViolation } from "@/lib/files/sandbox";
 
@@ -21,6 +22,14 @@ export async function POST(req: NextRequest) {
     throw err;
   }
 
+  const rl = checkGeneralApiRateLimit(req);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "请求过于频繁，请稍后再试" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
+
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "请求参数无效" }, { status: 400 });
 
@@ -30,6 +39,10 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (err instanceof PathViolation) return NextResponse.json({ error: "非法路径" }, { status: 403 });
     console.error("[versions/restore]", err);
-    return NextResponse.json({ error: (err as Error).message || "恢复失败" }, { status: 500 });
+    // 不直接把 err.message 透传给客户端——未预期的文件系统错误
+    // （如 ENOENT）message 里常常带着服务器上的绝对路径。已知的
+    // "版本不存在" 之外，一律返回通用错误，详情只进服务端日志。
+    const message = err instanceof Error && err.message === "版本不存在" ? err.message : "恢复失败";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

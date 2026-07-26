@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth/requireAuth";
+import { checkGeneralApiRateLimit } from "@/lib/auth/rateLimit";
 import {
   readFileContent,
   writeFileContent,
@@ -56,6 +57,14 @@ const putSchema = z.object({
 export async function PUT(req: NextRequest) {
   const unauthorized = await checkAuth(req);
   if (unauthorized) return unauthorized;
+
+  const rl = checkGeneralApiRateLimit(req);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "请求过于频繁，请稍后再试" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
 
   const parsed = putSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "请求参数无效" }, { status: 400 });

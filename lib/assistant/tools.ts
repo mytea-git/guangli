@@ -27,6 +27,16 @@ function asString(v: unknown, fallback = ""): string {
   return typeof v === "string" ? v : fallback;
 }
 
+// 未预期的文件系统错误（如 ENOENT/EACCES）的 message 里通常带着服务器
+// 上的绝对路径——工具执行结果不只是显示给管理员看，还会被塞进发往
+// 外部 LLM 提供方的请求里，所以这里比普通 API 的错误处理更保守：
+// 已知/预期的错误类型才把描述性文案透出去，其余一律用固定文案，
+// 详细原因只记录到服务端日志。
+function safeToolError(err: unknown, context: string): string {
+  console.error(`[assistant/tools] ${context}`, err);
+  return "错误：操作失败";
+}
+
 export const ASSISTANT_TOOLS: ToolDefinition[] = [
   {
     name: "list_files",
@@ -42,7 +52,7 @@ export const ASSISTANT_TOOLS: ToolDefinition[] = [
         return entries.map((e) => `${e.type === "dir" ? "[目录]" : "[文件]"} ${e.path}`).join("\n");
       } catch (err) {
         if (err instanceof PathViolation) return "错误：非法路径";
-        return `错误：${(err as Error).message}`;
+        return safeToolError(err, "list_files");
       }
     },
   },
@@ -63,7 +73,7 @@ export const ASSISTANT_TOOLS: ToolDefinition[] = [
         if (err instanceof FileNotFoundError) return "错误：文件不存在";
         if (err instanceof FileTooLargeError) return "错误：文件过大（超过 1MB）";
         if (err instanceof BinaryFileError) return "错误：二进制文件，无法读取";
-        return `错误：${(err as Error).message}`;
+        return safeToolError(err, "read_file");
       }
     },
   },
@@ -85,7 +95,7 @@ export const ASSISTANT_TOOLS: ToolDefinition[] = [
       } catch (err) {
         if (err instanceof PathViolation) return "错误：非法路径";
         if (err instanceof FileTooLargeError) return "错误：内容过大（超过 1MB）";
-        return `错误：${(err as Error).message}`;
+        return safeToolError(err, "write_file");
       }
     },
   },
