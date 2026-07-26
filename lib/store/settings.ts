@@ -16,6 +16,8 @@ export const SettingsSchema = z.object({
     paused: z.boolean(),
   }),
   providerMode: z.enum(["mock", "openclaw"]),
+  /** 模型配置页"快速切换"选中的模型 id；空字符串表示沿用工作区配置文件里的默认模型。 */
+  activeModel: z.string(),
   assistant: z.object({
     enabled: z.boolean(),
     provider: z.enum(["anthropic", "openai-compatible"]),
@@ -35,6 +37,7 @@ export const DEFAULT_SETTINGS: Settings = {
   timezone: "Asia/Shanghai",
   mock: { speed: 1, paused: false },
   providerMode: "mock",
+  activeModel: "",
   assistant: {
     enabled: false,
     provider: "anthropic",

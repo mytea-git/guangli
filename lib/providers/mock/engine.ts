@@ -33,7 +33,7 @@ function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-function weightedModel(): string {
+function randomWeightedModel(): string {
   const total = MODEL_WEIGHTS.reduce((sum, m) => sum + m.weight, 0);
   let roll = Math.random() * total;
   for (const m of MODEL_WEIGHTS) {
@@ -42,6 +42,8 @@ function weightedModel(): string {
   }
   return MODEL_WEIGHTS[0].model;
 }
+
+const PREFERRED_MODEL_BIAS = 0.7; // 切换模型后，新任务大概率沿用它，但不是恒定（更真实）
 
 function nextStatus(prev: AgentStatus, roll: number): AgentStatus {
   if (roll < ERROR_ROLL_THRESHOLD) return "error";
@@ -67,6 +69,7 @@ class MockEngine {
   private timer: ReturnType<typeof setInterval> | null = null;
   private speed = 1;
   private paused = false;
+  private preferredModel: string | null = null;
 
   constructor() {
     this.start();
@@ -80,6 +83,13 @@ class MockEngine {
 
   private emit(event: ProviderEvent): void {
     for (const listener of this.listeners) listener(event);
+  }
+
+  private pickModel(): string {
+    if (this.preferredModel && Math.random() < PREFERRED_MODEL_BIAS) {
+      return this.preferredModel;
+    }
+    return randomWeightedModel();
   }
 
   private edgesTouching(agentId: string): WorkflowEdge[] {
@@ -131,7 +141,7 @@ class MockEngine {
         agent.currentTask = null;
       } else {
         agent.currentTask = pick(TASK_PHRASES[agent.id] ?? ["处理中…"]);
-        agent.model = weightedModel();
+        agent.model = this.pickModel();
       }
 
       const active = next === "thinking" || next === "tool";
@@ -179,6 +189,16 @@ class MockEngine {
       setSpeed: (speed: number) => {
         this.speed = speed;
         this.start();
+      },
+      setActiveModel: (modelId: string) => {
+        this.preferredModel = modelId;
+        // 立即可见的反馈：主脑马上切到新模型，不必等下一次状态转移。
+        const orchestrator = this.agents.get("orchestrator");
+        if (orchestrator) {
+          orchestrator.model = modelId;
+          orchestrator.lastActiveAt = new Date().toISOString();
+          this.emit({ type: "agents:update", agents: [{ ...orchestrator }] });
+        }
       },
     };
   }
