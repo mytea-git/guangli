@@ -3,10 +3,15 @@ import { readJson, writeJson } from "./jsonStore";
 
 const FILE = "settings.json";
 
+// 允许为空（未配置/关闭）；一旦填写就必须是 http/https 地址——
+// 防止意外把 javascript:/file: 等协议写进 iframe src 或出站请求目标。
+const httpUrl = () =>
+  z.string().refine((v) => v === "" || /^https?:\/\//i.test(v), { message: "必须是 http/https 开头的地址" });
+
 export const SettingsSchema = z.object({
   connect: z.object({
     enabled: z.boolean(),
-    url: z.string(),
+    url: httpUrl(),
   }),
   workspaceRoot: z.string(),
   theme: z.enum(["light", "dark", "system"]),
@@ -21,7 +26,7 @@ export const SettingsSchema = z.object({
   assistant: z.object({
     enabled: z.boolean(),
     provider: z.enum(["anthropic", "openai-compatible"]),
-    baseUrl: z.string(),
+    baseUrl: httpUrl(),
     apiKey: z.string(),
     model: z.string(),
     maxToolRounds: z.number().int().min(1).max(20),
