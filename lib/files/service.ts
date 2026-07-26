@@ -157,6 +157,21 @@ export async function writeFileContent(
     }
   }
 
+  // 写入前把磁盘上当前的内容快照一份（如果文件已存在）——这样文件页
+  // 保存、Soul 卡片保存、AI 助手的 write_file 工具（三者都走这同一个
+  // 函数）都天然获得"可回滚到写入前状态"的能力，不需要各自单独接线。
+  // 用动态 import 避免与 lib/versions/store.ts 的静态双向依赖。
+  try {
+    const currentContent = await fs.readFile(abs, "utf8");
+    const { snapshotFile } = await import("@/lib/versions/store");
+    await snapshotFile("workspace", relPath, currentContent, "edit");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      // 快照失败不应该阻止正常保存——记录日志即可，不中断写入。
+      console.error(`[files] 保存前为 ${relPath} 创建版本快照失败`, err);
+    }
+  }
+
   await fs.mkdir(path.dirname(abs), { recursive: true });
   await fs.writeFile(abs, content, "utf8");
   const stat = await fs.stat(abs);

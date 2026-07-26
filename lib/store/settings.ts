@@ -84,6 +84,6 @@ export async function updateSettings(patch: SettingsPatch): Promise<Settings> {
     assistant: { ...current.assistant, ...(patch.assistant ?? {}) },
   };
   const parsed = SettingsSchema.parse(next);
-  await writeJson(FILE, parsed);
+  await writeJson(FILE, parsed, { snapshot: true });
   return parsed;
 }

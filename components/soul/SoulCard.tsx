@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
-import { FileText, ChevronDown, ChevronUp } from "lucide-react";
+import { FileText, ChevronDown, ChevronUp, History } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { VersionHistoryPanel } from "@/components/versions/VersionHistoryPanel";
 import { useToastStore } from "@/stores/toastStore";
 import { useTheme } from "@/hooks/useTheme";
 import type { SoulFileInfo } from "@/lib/soul/scan";
@@ -26,8 +27,22 @@ export function SoulCard({ file }: { file: SoulFileInfo }) {
   const [modifiedAt, setModifiedAt] = useState<string | null>(file.modifiedAt);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const pushToast = useToastStore((s) => s.push);
   const { resolvedDark } = useTheme();
+
+  async function reloadContent() {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/files/content?path=${encodeURIComponent(file.path)}`);
+      const data = await res.json().catch(() => ({}) as { content?: string; modifiedAt?: string });
+      setContent(data.content ?? "");
+      setOriginal(data.content ?? "");
+      setModifiedAt(data.modifiedAt ?? null);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const dirty = content !== null && original !== null && content !== original;
 
@@ -125,6 +140,9 @@ export function SoulCard({ file }: { file: SoulFileInfo }) {
               </div>
               <div className="flex items-center justify-end gap-2 border-t border-neutral-200 p-2 dark:border-neutral-800">
                 <span className="mr-auto text-xs text-neutral-400">{dirty ? "有未保存的修改" : "已保存"}</span>
+                <Button variant="ghost" onClick={() => setHistoryOpen(true)} title="版本历史">
+                  <History size={13} />
+                </Button>
                 <Button variant="primary" onClick={handleSave} disabled={!dirty || saving}>
                   {saving ? "保存中…" : "保存"}
                 </Button>
@@ -132,6 +150,14 @@ export function SoulCard({ file }: { file: SoulFileInfo }) {
             </>
           )}
         </div>
+      )}
+      {historyOpen && (
+        <VersionHistoryPanel
+          kind="workspace"
+          path={file.path}
+          onClose={() => setHistoryOpen(false)}
+          onRestored={reloadContent}
+        />
       )}
     </Card>
   );

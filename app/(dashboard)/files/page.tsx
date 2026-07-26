@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { FilePlus, FolderPlus, RefreshCw } from "lucide-react";
+import { FilePlus, FolderPlus, RefreshCw, History } from "lucide-react";
 import { FileTree } from "@/components/files/FileTree";
 import { EditorTabs } from "@/components/files/EditorTabs";
 import { FileContextMenu, type ContextMenuItem } from "@/components/files/FileContextMenu";
+import { VersionHistoryPanel } from "@/components/versions/VersionHistoryPanel";
 import { Button } from "@/components/ui/Button";
 import { useFilesStore } from "@/stores/filesStore";
 import { useToastStore } from "@/stores/toastStore";
@@ -46,6 +47,7 @@ export default function FilesPage() {
   const { resolvedDark } = useTheme();
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [pendingClose, setPendingClose] = useState<string | null>(null);
+  const [historyPath, setHistoryPath] = useState<string | null>(null);
 
   const loadTree = useCallback(async () => {
     setLoadingTree(true);
@@ -163,6 +165,33 @@ export default function FilesPage() {
     }
   }, [pushToast, markSaved, loadTree]);
 
+  async function reloadTabContent(path: string) {
+    const entry = { path, name: path.split("/").pop() ?? path, type: "file" as const };
+    await handleOpenFileForced(entry);
+  }
+
+  // handleOpenFile 会在 tab 已存在时直接切换过去而不重新拉取内容；
+  // 版本恢复后需要强制重新拉取磁盘上的最新内容，所以单独抽一个不走
+  // "已存在则跳过"分支的版本。
+  async function handleOpenFileForced(entry: FileTreeEntry) {
+    try {
+      const res = await fetch(`/api/files/content?path=${encodeURIComponent(entry.path)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      openTab({
+        path: entry.path,
+        name: entry.name,
+        content: data.content,
+        originalContent: data.content,
+        modifiedAt: data.modifiedAt,
+        loading: false,
+        error: null,
+      });
+    } catch {
+      // 恢复已经成功，只是刷新展示失败——不弹错误打扰用户，用户可手动重新打开
+    }
+  }
+
   function requestClose(path: string) {
     const tab = tabs.find((t) => t.path === path);
     if (tab && tab.content !== tab.originalContent) {
@@ -275,6 +304,14 @@ export default function FilesPage() {
           <Button variant="ghost" onClick={loadTree} title="刷新">
             <RefreshCw size={14} />
           </Button>
+          <Button
+            variant="ghost"
+            onClick={() => activeTab && setHistoryPath(activeTab.path)}
+            disabled={!activeTab}
+            title="版本历史"
+          >
+            <History size={14} />
+          </Button>
         </div>
       </div>
       <div className="flex flex-1 overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800">
@@ -341,6 +378,14 @@ export default function FilesPage() {
             </div>
           </div>
         </div>
+      )}
+      {historyPath && (
+        <VersionHistoryPanel
+          kind="workspace"
+          path={historyPath}
+          onClose={() => setHistoryPath(null)}
+          onRestored={() => reloadTabContent(historyPath)}
+        />
       )}
     </div>
   );

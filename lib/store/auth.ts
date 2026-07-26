@@ -33,7 +33,7 @@ export async function getAuthRecord(): Promise<AuthRecord> {
         updatedAt: new Date().toISOString(),
         bootstrapped: true,
       };
-      await writeJson(FILE, record);
+      await writeJson(FILE, record, { snapshot: true });
       return record;
     })();
   }
@@ -47,6 +47,6 @@ export async function setPassword(newPassword: string): Promise<void> {
     updatedAt: new Date().toISOString(),
     bootstrapped: false,
   };
-  await writeJson(FILE, record);
+  await writeJson(FILE, record, { snapshot: true });
   bootstrapState().promise = Promise.resolve(record);
 }
