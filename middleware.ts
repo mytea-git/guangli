@@ -6,7 +6,10 @@ export const config = {
   // /monaco/* 是自托管的 Monaco 编辑器静态资源（public/monaco，见
   // scripts/copy-monaco-assets.mjs），不含任何敏感数据，同 _next/static
   // 一样不需要鉴权，否则编辑器的懒加载语言 worker 请求会被 307 到登录页。
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|monaco/).*)"],
+  // icon.svg 是 Next.js App Router 的文件约定 favicon（app/icon.svg），
+  // 同理不含敏感数据也不需要鉴权——漏掉它会导致浏览器请求 favicon 时
+  // 被 307 到登录页（不影响功能，但会在网络面板里产生一条噪音）。
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|monaco/).*)"],
 };
 
 const PUBLIC_PATHS = new Set(["/login", "/api/auth/login"]);

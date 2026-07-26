@@ -164,7 +164,7 @@ export function UsageHeatmap({ usage, loading }: UsageHeatmapProps) {
       {loading ? (
         <div className="flex h-32 items-center justify-center text-sm text-neutral-400">加载中…</div>
       ) : (
-        <div className="flex items-start gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
           <div className="flex gap-3">
             <div className="flex flex-col justify-between py-[2px] text-[10px] text-neutral-400">
               {WEEKDAY_LABEL.map((label, i) => (
@@ -198,7 +198,7 @@ export function UsageHeatmap({ usage, loading }: UsageHeatmapProps) {
             </div>
           </div>
 
-          <div className="min-w-[180px] flex-1 text-xs">
+          <div className="min-w-0 flex-1 text-xs sm:min-w-[180px]">
             {hovered ? (
               <div>
                 <p className="font-medium">{formatDateLabel(hovered.date)}</p>

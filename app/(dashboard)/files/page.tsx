@@ -192,6 +192,40 @@ export default function FilesPage() {
     }
   }
 
+  // 刷新页面后恢复上次打开的标签页：只持久化路径列表（不存文件内容——
+  // 内容始终从磁盘重新拉取，避免 localStorage 里留一份可能过期/敏感的
+  // 副本）。仅在 store 里 tabs 为空时尝试恢复一次，避免覆盖正常使用中的状态。
+  const TAB_STORAGE_KEY = "guangli-files-open-tabs";
+  useEffect(() => {
+    if (tabs.length > 0) return;
+    (async () => {
+      try {
+        const raw = localStorage.getItem(TAB_STORAGE_KEY);
+        if (!raw) return;
+        const saved: { paths: string[]; activeTabPath: string | null } = JSON.parse(raw);
+        // 依次等待每个恢复请求完成，再统一设置 activeTab——否则并发的
+        // openTab() 调用各自把 activeTabPath 改到自己身上，谁最后
+        // resolve 就顶掉之前设置的正确值，最终激活的标签会随机漂移。
+        for (const path of saved.paths) {
+          await handleOpenFileForced({ path, name: path.split("/").pop() ?? path, type: "file" });
+        }
+        if (saved.activeTabPath) setActiveTab(saved.activeTabPath);
+      } catch {
+        // localStorage 里的记录损坏，忽略即可，不影响正常使用
+      }
+    })();
+    // 只在挂载时尝试一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(TAB_STORAGE_KEY, JSON.stringify({ paths: tabs.map((t) => t.path), activeTabPath }));
+    } catch {
+      // 存储失败（如隐私模式禁用了 localStorage）不影响功能，静默忽略
+    }
+  }, [tabs, activeTabPath]);
+
   function requestClose(path: string) {
     const tab = tabs.find((t) => t.path === path);
     if (tab && tab.content !== tab.originalContent) {
@@ -314,8 +348,10 @@ export default function FilesPage() {
           </Button>
         </div>
       </div>
-      <div className="flex flex-1 overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800">
-        <div className="w-64 shrink-0 overflow-y-auto border-r border-neutral-200 p-2 dark:border-neutral-800">
+      <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-neutral-200 sm:flex-row dark:border-neutral-800">
+        {/* 小屏（<640px）时文件树折叠成一个有限高度的横条，堆叠在编辑器上方；
+            ≥640px 时恢复成左侧固定宽度的常驻侧栏。 */}
+        <div className="max-h-40 w-full shrink-0 overflow-y-auto border-b border-neutral-200 p-2 sm:max-h-none sm:w-64 sm:border-b-0 sm:border-r dark:border-neutral-800">
           {loadingTree && <p className="p-2 text-sm text-neutral-400">加载中…</p>}
           {treeError && <p className="p-2 text-sm text-red-500">{treeError}</p>}
           {tree && (
@@ -334,7 +370,7 @@ export default function FilesPage() {
           <div className="min-h-0 flex-1">
             {!activeTab && (
               <div className="flex h-full items-center justify-center text-sm text-neutral-400">
-                从左侧选择一个文件开始编辑
+                选择一个文件开始编辑
               </div>
             )}
             {activeTab?.loading && (

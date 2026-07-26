@@ -121,11 +121,11 @@ export default function ModelsPage() {
                   <p className="truncate">{config.model.id}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-neutral-400">temperature</p>
+                  <p className="text-xs text-neutral-400">温度（temperature）</p>
                   <p>{config.model.temperature ?? "—"}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-neutral-400">maxTokens</p>
+                  <p className="text-xs text-neutral-400">最大 token 数</p>
                   <p>{config.model.maxTokens ?? "—"}</p>
                 </div>
               </div>

@@ -266,11 +266,11 @@ function AssistantSection({ settings, save }: { settings: ClientSettings; save: 
         <Field label="模型 ID">
           <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder="claude-sonnet-4-5" />
         </Field>
-        <Field label="Base URL" hint="OpenAI 兼容模式必填；Anthropic 可留空使用官方默认地址">
+        <Field label="接口地址（Base URL）" hint="OpenAI 兼容模式必填；Anthropic 可留空使用官方默认地址">
           <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" />
         </Field>
         <Field
-          label="API Key"
+          label="API 密钥"
           hint={settings.assistant.hasApiKey ? "已配置（输入新值可覆盖，留空保持不变）" : "尚未配置"}
         >
           <Input
