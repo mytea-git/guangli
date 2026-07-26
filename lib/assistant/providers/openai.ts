@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../tools";
 import { ProviderApiError } from "./errors";
+import { assertPublicHttpUrl, UnsafeUrlError } from "@/lib/net/publicFetch";
 
 export interface OpenAIChatMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -41,6 +42,14 @@ export async function streamOpenAICompletion(
   onDelta: (delta: StreamDelta) => void,
   signal?: AbortSignal,
 ): Promise<void> {
+  // baseUrl 是管理员在设置页填写的任意地址（SSRF 面）：出网前先校验
+  // 它不会解析到内网/回环/链路本地地址。
+  try {
+    await assertPublicHttpUrl(baseUrl);
+  } catch (err) {
+    throw new ProviderApiError(err instanceof UnsafeUrlError ? err.message : "接口地址校验失败");
+  }
+
   const url = baseUrl.replace(/\/+$/, "") + "/chat/completions";
   const body = {
     model,
@@ -57,8 +66,12 @@ export async function streamOpenAICompletion(
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify(body),
     signal,
+    redirect: "manual",
   });
 
+  if (res.status >= 300 && res.status < 400) {
+    throw new ProviderApiError("模型接口返回重定向，已拒绝跟随");
+  }
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => "");
     throw new ProviderApiError(`模型接口返回 ${res.status}：${text.slice(0, 300)}`);

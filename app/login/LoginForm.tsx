@@ -4,6 +4,17 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 
+// 只接受站内、单斜杠开头的路径（如 "/files"）；拒绝协议相对地址
+// （"//evil.com"，浏览器会当作 evil.com 的同协议链接）、绝对 URL
+// （"https://evil.com" 或大小写/编码变体 "HTTPS:...", "/\evil.com" 等）
+// 以及任何包含 "://" 的值——都会被回落到默认的站内页面。
+const SAFE_NEXT_RE = /^\/(?!\/|\\)(?!.*:\/\/).*$/;
+
+function safeNextPath(raw: string | null): string {
+  if (raw && SAFE_NEXT_RE.test(raw)) return raw;
+  return "/workflow";
+}
+
 export function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
@@ -26,7 +37,7 @@ export function LoginForm() {
         setError(data.error || "登录失败");
         return;
       }
-      const next = params.get("next") || "/workflow";
+      const next = safeNextPath(params.get("next"));
       router.replace(next);
       router.refresh();
     } finally {

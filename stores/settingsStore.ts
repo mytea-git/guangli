@@ -2,8 +2,11 @@ import { create } from "zustand";
 import type { Settings } from "@/lib/store/settings";
 
 // 服务端打码后的设置形态（assistant.apiKey 被替换为 hasApiKey 布尔值）。
+// workspaceRoot 不再是 Settings 里的可写字段（见 lib/store/settings.ts
+// 顶部注释），而是 API 路由额外附加的只读展示值，因此在这里单独声明。
 export type ClientSettings = Omit<Settings, "assistant"> & {
   assistant: Omit<Settings["assistant"], "apiKey"> & { hasApiKey: boolean };
+  workspaceRoot: string;
 };
 
 interface SettingsStore {

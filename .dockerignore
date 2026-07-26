@@ -1,0 +1,35 @@
+# docker compose 的构建上下文是仓库根目录（deploy/docker-compose.yml
+# 里 build.context: ..），Dockerfile 在 builder 阶段会执行 `COPY . .`——
+# 没有这份忽略清单时，宿主机上的 node_modules（可能是不同架构/版本，
+# 会整个覆盖掉 deps 阶段刚装好的干净依赖）、data/（含密码哈希、AI 助手
+# 明文 API Key 等运行时敏感数据）都会被一起拷进构建上下文，前者破坏
+# 镜像的可复现性，后者会把敏感数据烤进镜像层，即使后续文件被删除
+# 也仍然留在镜像的历史 layer 里。
+
+# 依赖与构建产物：镜像内会重新安装/构建
+node_modules
+.next
+out
+build
+
+# 版本控制与编辑器
+.git
+.gitignore
+.vscode
+
+# 运行时数据/密钥——绝不应该进入构建上下文
+data
+.env
+.env.local
+.env.production
+deploy/.env
+
+# 自动生成的 Monaco 资源，builder 阶段会用 scripts/copy-monaco-assets.mjs
+# 重新生成一份干净的（且该脚本本身会先删除旧目录）
+public/monaco
+
+# 其它
+*.pem
+*.tsbuildinfo
+npm-debug.log*
+.DS_Store

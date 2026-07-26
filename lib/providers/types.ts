@@ -65,6 +65,8 @@ export interface ProviderControls {
   setSpeed(speed: number): void;
   /** 模型配置页"快速切换"：立即让主脑改用新模型，并偏向后续新任务采用它。 */
   setActiveModel(modelId: string): void;
+  /** 影响 token 用量按天归档时使用的日期边界（默认 Asia/Shanghai）。 */
+  setTimezone(timezone: string): void;
 }
 
 export interface DataProvider {

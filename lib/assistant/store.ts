@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "@/lib/store/jsonStore";
-import { getGlobalSingleton } from "@/lib/utils/globalSingleton";
+import { createSerialQueue } from "@/lib/utils/serialQueue";
 import type { Conversation, ConversationSummary } from "./types";
 
 const DIR_NAME = "assistant";
@@ -18,16 +18,7 @@ function isValidId(id: string): boolean {
 }
 
 // 每个会话文件各自的写入串行化，避免同一会话被并发请求写坏。
-function queues(): Map<string, Promise<unknown>> {
-  return getGlobalSingleton("assistantQueues", () => new Map<string, Promise<unknown>>());
-}
-function enqueue<T>(key: string, task: () => Promise<T>): Promise<T> {
-  const q = queues();
-  const prev = q.get(key) ?? Promise.resolve();
-  const next = prev.then(task, task);
-  q.set(key, next.catch(() => undefined));
-  return next;
-}
+const enqueue = createSerialQueue("assistantQueues");
 
 export function generateConversationId(): string {
   return randomUUID();

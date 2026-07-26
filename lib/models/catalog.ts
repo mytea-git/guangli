@@ -1,5 +1,6 @@
 import { readJson, writeJson } from "@/lib/store/jsonStore";
 import { getSettings } from "@/lib/store/settings";
+import { assertPublicHttpUrl } from "@/lib/net/publicFetch";
 import { STATIC_CATALOG } from "./staticCatalog";
 import type { CatalogCache, ModelInfo } from "./types";
 
@@ -15,11 +16,15 @@ export async function getCachedCatalog(): Promise<CatalogCache> {
 
 // 统一的"带超时 + 响应体大小上限"抓取，防止联网获取卡死或被诱导下载
 // 超大响应（SSRF/滥用防护的一部分，M10 安全清单也会复查这里）。
+// redirect: "manual" + 把 3xx 当失败处理：避免一个校验时看起来正常的
+// 地址，通过跳转把实际请求带到内网地址（SSRF 防护的一部分，配合
+// lib/net/publicFetch.ts 的解析前校验）。
 async function boundedFetchJson(url: string, headers: Record<string, string>): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { signal: controller.signal, headers });
+    const res = await fetch(url, { signal: controller.signal, headers, redirect: "manual" });
+    if (res.status >= 300 && res.status < 400) throw new Error("不允许跳转，已拒绝");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const contentLength = res.headers.get("content-length");
     if (contentLength && Number(contentLength) > MAX_RESPONSE_BYTES) {
@@ -77,6 +82,9 @@ interface OpenAIModel {
 }
 
 async function fetchOpenAICompatibleModels(baseUrl: string, apiKey: string): Promise<ModelInfo[]> {
+  // baseUrl 是管理员在设置页填写的任意地址（SSRF 面）：出网前先校验
+  // 它不会解析到内网/回环/链路本地地址。
+  await assertPublicHttpUrl(baseUrl);
   const url = baseUrl.replace(/\/+$/, "") + "/models";
   const json = (await boundedFetchJson(url, { Authorization: `Bearer ${apiKey}` })) as {
     data?: OpenAIModel[];

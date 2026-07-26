@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAuth, AuthError } from "@/lib/auth/requireAuth";
+import { checkGeneralApiRateLimit } from "@/lib/auth/rateLimit";
 import { getConversation, deleteConversation } from "@/lib/assistant/store";
 
 export const runtime = "nodejs";
@@ -30,6 +31,15 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 export async function DELETE(req: NextRequest, { params }: RouteContext) {
   const unauthorized = await checkAuth(req);
   if (unauthorized) return unauthorized;
+
+  const rl = checkGeneralApiRateLimit(req);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "请求过于频繁，请稍后再试" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
+
   const { id } = await params;
   await deleteConversation(id);
   return NextResponse.json({ ok: true });

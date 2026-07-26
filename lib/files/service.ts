@@ -1,7 +1,16 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { resolveSafe, isValidFilename, PathViolation } from "./sandbox";
-import { getSettings } from "@/lib/store/settings";
+import { createSerialQueue } from "@/lib/utils/serialQueue";
+
+// 单个固定 key 的串行队列：把所有会修改工作区文件系统状态的操作
+// （写入/新建/删除/重命名）序列化。用固定 key 而不是按路径分 key，
+// 是因为重命名一次涉及两个路径，按路径分 key 需要同时持有两把锁、
+// 容易引入锁顺序死锁；工作区编辑是单管理员的交互式操作（一次编辑
+// 一两个文件），不会有真实的高并发写入需求，用一把全局锁换取正确性
+// 上的简单可靠是合算的。
+const enqueueWrite = createSerialQueue("workspaceWriteQueues");
+const WRITE_QUEUE_KEY = "workspace";
 
 export interface FileTreeEntry {
   name: string;
@@ -21,9 +30,12 @@ const BINARY_EXT_DENYLIST = new Set([
   ".woff", ".woff2", ".ttf", ".eot", ".pdf", ".mp3", ".mp4", ".mov", ".exe", ".dll", ".so",
 ]);
 
+// 固定从 WORKSPACE_DIR 环境变量读取（与 DATA_DIR 的处理方式一致，见
+// lib/store/jsonStore.ts），部署期确定、不可通过设置 API 在运行时改写
+// ——见 lib/store/settings.ts 顶部注释：这个值一旦能被管理员任意改写，
+// 就可能被设成 "/" 之类的路径，让 resolveSafe() 的沙箱形同虚设。
 export async function getWorkspaceRoot(): Promise<string> {
-  const settings = await getSettings();
-  return path.resolve(process.cwd(), settings.workspaceRoot);
+  return path.resolve(process.cwd(), process.env.WORKSPACE_DIR || "./workspace-demo");
 }
 
 export interface ShallowEntry {
@@ -136,76 +148,84 @@ export async function writeFileContent(
   content: string,
   knownModifiedAt?: string,
 ): Promise<{ modifiedAt: string }> {
-  const root = await getWorkspaceRoot();
-  const abs = resolveSafe(root, relPath);
+  return enqueueWrite(WRITE_QUEUE_KEY, async () => {
+    const root = await getWorkspaceRoot();
+    const abs = resolveSafe(root, relPath);
 
-  if (Buffer.byteLength(content, "utf8") > MAX_FILE_BYTES) {
-    throw new FileTooLargeError();
-  }
+    if (Buffer.byteLength(content, "utf8") > MAX_FILE_BYTES) {
+      throw new FileTooLargeError();
+    }
 
-  if (knownModifiedAt) {
-    try {
-      const stat = await fs.stat(abs);
-      if (stat.mtime.toISOString() !== knownModifiedAt) {
-        throw new ConflictError();
+    if (knownModifiedAt) {
+      try {
+        const stat = await fs.stat(abs);
+        if (stat.mtime.toISOString() !== knownModifiedAt) {
+          throw new ConflictError();
+        }
+      } catch (err) {
+        if (err instanceof ConflictError) throw err;
+        const code = (err as NodeJS.ErrnoException)?.code;
+        if (code !== "ENOENT") throw err;
+        // 文件尚不存在，视为新建，跳过冲突检查
       }
+    }
+
+    // 写入前把磁盘上当前的内容快照一份（如果文件已存在）——这样文件页
+    // 保存、Soul 卡片保存、AI 助手的 write_file 工具（三者都走这同一个
+    // 函数）都天然获得"可回滚到写入前状态"的能力，不需要各自单独接线。
+    // 用动态 import 避免与 lib/versions/store.ts 的静态双向依赖。
+    try {
+      const currentContent = await fs.readFile(abs, "utf8");
+      const { snapshotFile } = await import("@/lib/versions/store");
+      await snapshotFile("workspace", relPath, currentContent, "edit");
     } catch (err) {
-      if (err instanceof ConflictError) throw err;
-      const code = (err as NodeJS.ErrnoException)?.code;
-      if (code !== "ENOENT") throw err;
-      // 文件尚不存在，视为新建，跳过冲突检查
+      if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
+        // 快照失败不应该阻止正常保存——记录日志即可，不中断写入。
+        console.error(`[files] 保存前为 ${relPath} 创建版本快照失败`, err);
+      }
     }
-  }
 
-  // 写入前把磁盘上当前的内容快照一份（如果文件已存在）——这样文件页
-  // 保存、Soul 卡片保存、AI 助手的 write_file 工具（三者都走这同一个
-  // 函数）都天然获得"可回滚到写入前状态"的能力，不需要各自单独接线。
-  // 用动态 import 避免与 lib/versions/store.ts 的静态双向依赖。
-  try {
-    const currentContent = await fs.readFile(abs, "utf8");
-    const { snapshotFile } = await import("@/lib/versions/store");
-    await snapshotFile("workspace", relPath, currentContent, "edit");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
-      // 快照失败不应该阻止正常保存——记录日志即可，不中断写入。
-      console.error(`[files] 保存前为 ${relPath} 创建版本快照失败`, err);
-    }
-  }
-
-  await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, content, "utf8");
-  const stat = await fs.stat(abs);
-  return { modifiedAt: stat.mtime.toISOString() };
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+    await fs.writeFile(abs, content, "utf8");
+    const stat = await fs.stat(abs);
+    return { modifiedAt: stat.mtime.toISOString() };
+  });
 }
 
 export async function createEntry(relPath: string, kind: "file" | "dir"): Promise<void> {
-  const root = await getWorkspaceRoot();
-  const abs = resolveSafe(root, relPath);
-  const name = path.basename(abs);
-  if (!isValidFilename(name)) throw new PathViolation();
+  return enqueueWrite(WRITE_QUEUE_KEY, async () => {
+    const root = await getWorkspaceRoot();
+    const abs = resolveSafe(root, relPath);
+    const name = path.basename(abs);
+    if (!isValidFilename(name)) throw new PathViolation();
 
-  if (kind === "dir") {
-    await fs.mkdir(abs, { recursive: false });
-  } else {
-    await fs.mkdir(path.dirname(abs), { recursive: true });
-    const handle = await fs.open(abs, "wx"); // 'wx'：已存在则失败，不覆盖
-    await handle.close();
-  }
+    if (kind === "dir") {
+      await fs.mkdir(abs, { recursive: false });
+    } else {
+      await fs.mkdir(path.dirname(abs), { recursive: true });
+      const handle = await fs.open(abs, "wx"); // 'wx'：已存在则失败，不覆盖
+      await handle.close();
+    }
+  });
 }
 
 export async function deleteEntry(relPath: string, recursive: boolean): Promise<void> {
-  const root = await getWorkspaceRoot();
-  const abs = resolveSafe(root, relPath);
-  if (abs === root) throw new PathViolation(); // 禁止删除工作区根目录本身
-  await fs.rm(abs, { recursive, force: false });
+  return enqueueWrite(WRITE_QUEUE_KEY, async () => {
+    const root = await getWorkspaceRoot();
+    const abs = resolveSafe(root, relPath);
+    if (abs === root) throw new PathViolation(); // 禁止删除工作区根目录本身
+    await fs.rm(abs, { recursive, force: false });
+  });
 }
 
 export async function renameEntry(fromRel: string, toRel: string): Promise<void> {
-  const root = await getWorkspaceRoot();
-  const fromAbs = resolveSafe(root, fromRel);
-  const toAbs = resolveSafe(root, toRel); // 新旧路径都要过沙箱校验
-  const name = path.basename(toAbs);
-  if (!isValidFilename(name)) throw new PathViolation();
-  await fs.mkdir(path.dirname(toAbs), { recursive: true });
-  await fs.rename(fromAbs, toAbs);
+  return enqueueWrite(WRITE_QUEUE_KEY, async () => {
+    const root = await getWorkspaceRoot();
+    const fromAbs = resolveSafe(root, fromRel);
+    const toAbs = resolveSafe(root, toRel); // 新旧路径都要过沙箱校验
+    const name = path.basename(toAbs);
+    if (!isValidFilename(name)) throw new PathViolation();
+    await fs.mkdir(path.dirname(toAbs), { recursive: true });
+    await fs.rename(fromAbs, toAbs);
+  });
 }

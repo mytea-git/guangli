@@ -15,6 +15,7 @@ export function createMockProvider(): DataProvider {
     if (settings.activeModel) controls.setActiveModel(settings.activeModel);
     if (settings.mock.speed !== 1) controls.setSpeed(settings.mock.speed);
     if (settings.mock.paused) controls.pause();
+    controls.setTimezone(settings.timezone);
   });
 
   return {

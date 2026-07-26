@@ -4,18 +4,14 @@ import { z } from "zod";
 import { getAuthRecord } from "@/lib/store/auth";
 import { verifyPassword } from "@/lib/auth/password";
 import { signSession, SESSION_COOKIE, sessionCookieOptions } from "@/lib/auth/session";
-import { checkRateLimit } from "@/lib/auth/rateLimit";
+import { checkRateLimit, clientIpFrom } from "@/lib/auth/rateLimit";
 
 export const runtime = "nodejs";
 
 const bodySchema = z.object({ password: z.string().min(1).max(256) });
 
-function clientIp(req: NextRequest): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-}
-
 export async function POST(req: NextRequest) {
-  const ip = clientIp(req);
+  const ip = clientIpFrom(req);
   const rl = checkRateLimit(`login:${ip}`);
   if (!rl.allowed) {
     return NextResponse.json(
@@ -35,7 +31,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "密码错误" }, { status: 401 });
   }
 
-  const token = await signSession();
+  const token = await signSession(record.tokenVersion);
   const res = NextResponse.json({ ok: true });
   res.cookies.set(SESSION_COOKIE, token, sessionCookieOptions());
   return res;

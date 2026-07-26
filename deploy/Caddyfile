@@ -2,6 +2,12 @@
 {$DOMAIN:localhost} {
 	encode zstd gzip
 
+	# HSTS：告诉浏览器此后一律用 HTTPS 直连，避免首次请求走 HTTP 明文、
+	# 或被 SSL-strip 类中间人降级。includeSubDomains 覆盖本域下的子域；
+	# 本地/无域名场景（DOMAIN=localhost，走 HTTP）加这个头无实际效果
+	# 但也无害，不需要按环境区分开关。
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
 	# SSE 事件流：禁用压缩缓冲，保证实时推送即时到达
 	@sse {
 		header Accept text/event-stream

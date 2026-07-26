@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 
 const LOAD_TIMEOUT_MS = 8000;
 
-type Status = "loading" | "ready" | "unreachable" | "timeout";
+type Status = "loading" | "ready" | "timeout";
 
 export function EmbedFrame({ url }: { url: string }) {
   const [status, setStatus] = useState<Status>("loading");
@@ -14,45 +14,36 @@ export function EmbedFrame({ url }: { url: string }) {
 
   useEffect(() => {
     setStatus("loading");
-    let cancelled = false;
 
-    // 跨域 iframe 在目标彻底不可达（DNS 解析失败/连接被拒绝）时，
-    // 浏览器会把 iframe 导航到它自己内部的错误页（如 Chrome 的
-    // chrome-error://chromewebdata/），而这个导航本身仍然会触发
-    // iframe 的 onLoad——从父页面角度完全看不出区别，8 秒超时也
-    // 派不上用场（因为 onLoad 已经"成功"触发了）。用一个并行的
-    // no-cors 预检测请求补上这个检测不到的场景：no-cors 模式下拿不到
-    // 响应内容，但网络层的连接失败依然会让 fetch reject，这个信号
-    // 不受 iframe onLoad 的语义影响。
-    const probeController = new AbortController();
-    fetch(url, { mode: "no-cors", signal: probeController.signal }).catch(() => {
-      if (!cancelled) setStatus((s) => (s === "ready" ? s : "unreachable"));
-    });
-
-    // 目标网络可达、但加载异常缓慢，或者会加载成功却被 frame-ancestors
-    // 拒绝渲染（这种情况下大多数浏览器同样会触发 onLoad，此超时更多是
-    // 兜底真正缓慢的加载）——8 秒后仍处于 loading 才升级为 timeout。
+    // 之前这里还有一个并行的 `fetch(url, {mode:'no-cors'})` 预检测请求，
+    // 用来补上"跨域 iframe 目标彻底不可达时，浏览器仍会触发 onLoad
+    // （导航到浏览器内部错误页也算一次 load）"这个检测盲区。但那个
+    // fetch 请求本身会被 next.config.ts 里的 CSP `connect-src 'self'`
+    // 拦截而必然 reject（因为目标是跨域地址）——不管 iframe 是否真的
+    // 加载成功，探测请求永远失败，页面因此必现"无法连接到该地址"的
+    // 错误提示，把一个正常工作的 iframe 也盖上假报错。
+    // 收紧 CSP（M10）与这段探测逻辑（M6）互相冲突，两者不能同时满足：
+    // 放宽 connect-src 允许任意地址会削弱 CSP 本身的防护意义，所以
+    // 这里选择去掉探测请求，只依赖 iframe onLoad + 超时兜底——
+    // 代价是"DNS 解析失败/连接被拒绝"这类场景会呈现为超时而不是立即
+    // 的"无法连接"提示，但不会再出现"明明能用却报错"的情况。
     const timeoutTimer = setTimeout(() => {
       setStatus((s) => (s === "loading" ? "timeout" : s));
     }, LOAD_TIMEOUT_MS);
 
     return () => {
-      cancelled = true;
-      probeController.abort();
       clearTimeout(timeoutTimer);
     };
   }, [url, attempt]);
 
-  const hasProblem = status === "unreachable" || status === "timeout";
+  const hasProblem = status === "timeout";
 
   return (
     <div className="relative h-[calc(100vh-9rem)] overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800">
       <iframe
         key={attempt}
         src={url}
-        // 如果预检测已经判定 unreachable，不要被随后到达的 onLoad（可能
-        // 只是浏览器内部错误页"加载完成"）反过来又覆盖成 ready。
-        onLoad={() => setStatus((s) => (s === "unreachable" ? s : "ready"))}
+        onLoad={() => setStatus("ready")}
         referrerPolicy="no-referrer"
         sandbox="allow-scripts allow-same-origin allow-forms"
         className="h-full w-full"
@@ -65,9 +56,7 @@ export function EmbedFrame({ url }: { url: string }) {
             <>
               <AlertTriangle size={20} className="text-amber-500" />
               <p className="text-sm text-neutral-500">
-                {status === "unreachable"
-                  ? "无法连接到该地址，请检查网关是否已启动、地址是否正确"
-                  : "加载时间较长——可能是该网页不允许被嵌入（frame-ancestors）"}
+                加载时间较长——可能是网关未启动、地址不正确，或该网页不允许被嵌入（frame-ancestors）
               </p>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setAttempt((a) => a + 1)}>

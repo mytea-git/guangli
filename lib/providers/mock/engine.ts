@@ -70,6 +70,7 @@ class MockEngine {
   private speed = 1;
   private paused = false;
   private preferredModel: string | null = null;
+  private timezone = "Asia/Shanghai";
 
   constructor() {
     this.start();
@@ -150,7 +151,7 @@ class MockEngine {
       if (next === "thinking" || next === "tool") {
         const inputTokens = Math.floor(50 + Math.random() * 400);
         const outputTokens = Math.floor(30 + Math.random() * 500);
-        const date = recordUsageTick(agent.model, inputTokens, outputTokens);
+        const date = recordUsageTick(agent.model, inputTokens, outputTokens, this.timezone);
         this.emit({ type: "usage:tick", date, model: agent.model, delta: { inputTokens, outputTokens } });
       }
 
@@ -199,6 +200,9 @@ class MockEngine {
           orchestrator.lastActiveAt = new Date().toISOString();
           this.emit({ type: "agents:update", agents: [{ ...orchestrator }] });
         }
+      },
+      setTimezone: (timezone: string) => {
+        this.timezone = timezone;
       },
     };
   }

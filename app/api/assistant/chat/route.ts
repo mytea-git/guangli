@@ -8,6 +8,7 @@ import { getSettings } from "@/lib/store/settings";
 import { getConversation, saveConversation } from "@/lib/assistant/store";
 import { runAssistant } from "@/lib/assistant/run";
 import { ProviderApiError } from "@/lib/assistant/providers/errors";
+import { windowHistoryForModel } from "@/lib/assistant/history";
 import type { ChatMessage, Conversation } from "@/lib/assistant/types";
 
 export const dynamic = "force-dynamic";
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
     content: parsed.data.message,
     createdAt: new Date().toISOString(),
   };
-  const historyForModel = [...conv.messages, userMsg];
+  const historyForModel = windowHistoryForModel([...conv.messages, userMsg]);
 
   const encoder = new TextEncoder();
   const abortController = new AbortController();

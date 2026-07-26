@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAuth, AuthError } from "@/lib/auth/requireAuth";
+import { checkGeneralApiRateLimit } from "@/lib/auth/rateLimit";
 import { listConversations, saveConversation, generateConversationId, evictOldConversations } from "@/lib/assistant/store";
 import type { Conversation } from "@/lib/assistant/types";
 
@@ -26,6 +27,14 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const unauthorized = await checkAuth(req);
   if (unauthorized) return unauthorized;
+
+  const rl = checkGeneralApiRateLimit(req);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "请求过于频繁，请稍后再试" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
 
   const now = new Date().toISOString();
   const conv: Conversation = {

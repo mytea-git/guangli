@@ -64,7 +64,7 @@ export default function SettingsPage() {
       <h1 className="text-lg font-semibold">设置</h1>
 
       <ConnectSection settings={settings} save={save} />
-      <WorkspaceSection settings={settings} save={save} />
+      <WorkspaceSection settings={settings} />
       <TimezoneSection settings={settings} save={save} />
       <MockControlSection settings={settings} />
       <AssistantSection settings={settings} save={save} />
@@ -103,25 +103,18 @@ function ConnectSection({ settings, save }: { settings: ClientSettings; save: Sa
   );
 }
 
-function WorkspaceSection({ settings, save }: { settings: ClientSettings; save: SaveFn }) {
-  const [root, setRoot] = useState(settings.workspaceRoot);
-  const [saving, setSaving] = useState(false);
-
-  async function handleSave() {
-    setSaving(true);
-    const ok = await save({ workspaceRoot: root });
-    setSaving(false);
-    if (ok) window.location.reload(); // 工作区根变化后，文件树/Soul 扫描需要重新加载
-  }
-
+function WorkspaceSection({ settings }: { settings: ClientSettings }) {
   return (
     <SettingsSection title="工作区">
-      <Field label="工作区根目录" hint="代码管理 / Soul 扫描的沙箱根路径；修改后会刷新页面">
-        <Input value={root} onChange={(e) => setRoot(e.target.value)} />
+      <Field label="工作区根目录" hint="代码管理 / Soul 扫描的沙箱根路径">
+        <Input value={settings.workspaceRoot} disabled readOnly />
       </Field>
-      <Button onClick={handleSave} disabled={saving} className="self-start">
-        {saving ? "保存中…" : "保存"}
-      </Button>
+      <p className="text-xs text-neutral-400">
+        出于安全考虑，工作区根目录不再支持在此处修改——可写的沙箱根会让文件沙箱失去意义
+        （例如被改成系统根目录后，文件相关功能将能读写整个文件系统）。
+        如需更换，请修改部署时的 <code className="rounded bg-neutral-100 px-1 dark:bg-neutral-800">WORKSPACE_DIR</code>{" "}
+        环境变量并重启服务。
+      </p>
     </SettingsSection>
   );
 }

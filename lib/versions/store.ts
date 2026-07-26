@@ -1,9 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { dataDir } from "@/lib/store/jsonStore";
+import { dataDir, writeJsonText } from "@/lib/store/jsonStore";
 import { resolveSafe } from "@/lib/files/sandbox";
 import { getWorkspaceRoot } from "@/lib/files/service";
+import { createSerialQueue } from "@/lib/utils/serialQueue";
 
 export type VersionKind = "workspace" | "data";
 
@@ -19,6 +20,13 @@ export interface FileVersion {
 }
 
 const MAX_VERSIONS_PER_FILE = 20;
+
+// 同一个文件的版本历史（index.json + *.snapshot）读改写要串行化——
+// 之前 snapshotFile 没有任何串行化保护，并发写同一个文件（比如 AI
+// 助手写文件的同时用户手动保存）会互相踩踏 index.json（读-改-写不是
+// 原子操作，后写的会覆盖先写的记录）和临时文件（原来用进程内常量
+// `index.json.${pid}.tmp` 命名，同一 key 下并发写会撞同一个临时路径）。
+const enqueue = createSerialQueue("versionsQueues");
 
 function versionsRoot(): string {
   return path.join(dataDir(), "versions");
@@ -45,7 +53,7 @@ async function readIndex(dir: string): Promise<FileVersion[]> {
 
 async function writeIndex(dir: string, versions: FileVersion[]): Promise<void> {
   const target = path.join(dir, "index.json");
-  const tmp = `${target}.${process.pid}.tmp`;
+  const tmp = `${target}.${randomUUID()}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(versions, null, 2), "utf8");
   await fs.rename(tmp, target);
 }
@@ -63,28 +71,30 @@ export async function snapshotFile(
   knownGood = true,
 ): Promise<FileVersion> {
   const dir = fileDir(kind, relPath);
-  await fs.mkdir(dir, { recursive: true });
-  const id = randomUUID();
-  await fs.writeFile(path.join(dir, `${id}.snapshot`), content, "utf8");
+  return enqueue(dir, async () => {
+    await fs.mkdir(dir, { recursive: true });
+    const id = randomUUID();
+    await fs.writeFile(path.join(dir, `${id}.snapshot`), content, "utf8");
 
-  const version: FileVersion = {
-    id,
-    kind,
-    relPath,
-    savedAt: new Date().toISOString(),
-    sizeBytes: Buffer.byteLength(content, "utf8"),
-    knownGood,
-    reason,
-  };
+    const version: FileVersion = {
+      id,
+      kind,
+      relPath,
+      savedAt: new Date().toISOString(),
+      sizeBytes: Buffer.byteLength(content, "utf8"),
+      knownGood,
+      reason,
+    };
 
-  const versions = await readIndex(dir);
-  versions.unshift(version);
-  const overflow = versions.splice(MAX_VERSIONS_PER_FILE);
-  await writeIndex(dir, versions);
+    const versions = await readIndex(dir);
+    versions.unshift(version);
+    const overflow = versions.splice(MAX_VERSIONS_PER_FILE);
+    await writeIndex(dir, versions);
 
-  await Promise.all(overflow.map((v) => fs.rm(path.join(dir, `${v.id}.snapshot`), { force: true })));
+    await Promise.all(overflow.map((v) => fs.rm(path.join(dir, `${v.id}.snapshot`), { force: true })));
 
-  return version;
+    return version;
+  });
 }
 
 export async function listVersions(kind: VersionKind, relPath: string): Promise<FileVersion[]> {
@@ -135,6 +145,17 @@ export async function restoreVersion(kind: VersionKind, relPath: string, version
     await fs.mkdir(path.dirname(abs), { recursive: true });
     await fs.writeFile(abs, content, "utf8");
   } else {
+    // data 类文件（settings.json / auth.json 等）恢复时，最终写入必须
+    // 走 jsonStore 的 writeJsonText——它和 getSettings()/updateSettings()
+    // 等日常读写共用同一把按文件名串行化的队列，避免"版本恢复"这个
+    // 动作绕开队列、与并发的正常读写互相踩踏（此前这里是直接拿
+    // fs.writeFile+rename 单独写，完全不经过 jsonStore 的保护）。
+    // 注意：下面这一段"读取当前内容用于快照"仍是不加锁的裸读，理论上
+    // 与一次几乎同时发生的 updateSettings() 写入之间还留有一个很窄的
+    // 竞态窗口（快照可能不是"恢复前一刻"最新的内容）——但最终写入本身
+    // 已经原子化，不会再出现恢复结果被后续正常写入静默覆盖/损坏的情况，
+    // 只是快照准确性在这个极小概率场景下可能有一次误差，接受为已知的
+    // 残余限制，而不是引入一次跨文件的复合事务来彻底消除它。
     const target = path.join(dataDir(), relPath);
     try {
       const current = await fs.readFile(target, "utf8");
@@ -148,9 +169,7 @@ export async function restoreVersion(kind: VersionKind, relPath: string, version
     } catch {
       // 目标文件不存在，没有内容可快照
     }
-    const tmp = `${target}.${process.pid}.tmp`;
-    await fs.writeFile(tmp, content, "utf8");
-    await fs.rename(tmp, target);
+    await writeJsonText(relPath, content);
   }
 }
 

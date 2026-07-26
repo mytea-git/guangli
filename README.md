@@ -52,12 +52,12 @@ docker compose up -d --build
 
   | 变量 | 说明 |
   |---|---|
-  | `AUTH_SECRET` | JWT 签名密钥，**必填**，建议 `openssl rand -base64 48` 生成 |
-  | `ADMIN_PASSWORD` | 首次启动写入的初始管理员密码，登录后请尽快在设置页修改 |
+  | `AUTH_SECRET` | JWT 签名密钥，**必填且需 ≥32 字符**，建议 `openssl rand -base64 48` 生成；生产环境（`NODE_ENV=production`）下缺失或过短会导致服务拒绝签发/校验会话（而不是静默回退到不安全的默认值） |
+  | `ADMIN_PASSWORD` | 首次启动写入的初始管理员密码；仍在使用该初始密码时，登录后的顶部会有持续提醒条，务必尽快在设置页修改 |
   | `DATA_DIR` | 运行时数据目录（容器内固定为 `/data`） |
-  | `WORKSPACE_DIR` | 受管工作区根目录（容器内固定为 `/workspace`） |
+  | `WORKSPACE_DIR` | 受管工作区根目录（容器内固定为 `/workspace`）；出于安全考虑不再支持通过设置页在运行时修改，只能通过这个环境变量在部署期确定 |
   | `DOMAIN` | Caddy 反向代理绑定的域名 |
-  | `TRUST_PROXY` | 生产环境设为 `1`，信任 Caddy 转发的 `x-forwarded-for` 头并启用 Secure cookie |
+  | `TRUST_PROXY` | 生产环境设为 `1`：启用 Secure cookie，且只有此时才会信任 Caddy 转发的 `x-forwarded-for` 头（取其最右一跳）用于按 IP 限流；未设置时限流退化为所有直连请求共享同一个桶，避免伪造该头绕过限流 |
 
 - **镜像构建**：`deploy/Dockerfile` 为 `node:22-alpine` 多阶段构建，最终以非 root 用户（`node`）运行；`npm ci --ignore-scripts` 避免原生模块编译问题，Monaco 编辑器静态资源在构建阶段拷入镜像自托管（不依赖运行时联网 CDN）。
 
@@ -67,12 +67,16 @@ docker compose up -d --build
 
 ## 安全说明
 
-- 所有 API 路由均在 middleware 之外再次调用 `requireAuth()` 做纵深防御；登录限流 5 次/60 秒/IP，文件与助手等接口按端点分别限流。
-- 文件相关全部端点经统一的 `resolveSafe()` 路径沙箱（`lib/files/sandbox.ts`），覆盖路径穿越、符号链接逃逸、NUL 字节等场景，配有 13 个 vitest 单测。
-- AI 助手工具（`list_files`/`read_file`/`write_file`）对未预期的文件系统错误统一返回脱敏文案，避免服务器内部路径通过工具结果泄露给外部 LLM API（`lib/assistant/tools.test.ts` 覆盖 3 个用例）。
-- 已配置 CSP、`X-Frame-Options`、`X-Content-Type-Options`、`Referrer-Policy` 等安全响应头（`next.config.ts`），其中的必要放宽项（如 Monaco 内联样式所需的 `style-src 'unsafe-inline'`、连接区可配置 iframe 所需的 `frame-src *`）均在代码注释中说明原因。
-- 模型 API Key 仅存于服务端数据目录，GET 接口一律打码返回，不进入客户端 bundle。
-- `npm audit --production` 存在 3 项高危提示，均为 `next` 自身捆绑的间接依赖（`postcss`、`sharp`），已确认项目未使用 `next/image`（唯一会触发 `sharp` 的路径）；`postcss` 仅在构建期处理可信的第一方源码，不经手运行时/不可信输入。npm 建议的修复方案（降级到 `next@9.3.3`）属于依赖解析器的误导性建议，实际会移除远多于其修复的安全补丁（包括 `next` 中间件绕过漏洞 CVE-2025-29927 的修复），因此判定为可接受的已知风险，未采用。
+- 所有 API 路由均在 middleware 之外再次调用 `requireAuth()` 做纵深防御；`requireAuth()` 除校验 JWT 签名/过期外，还会比对 token 里的版本号与 `auth.json` 当前记录的 `tokenVersion`——每次改密码该版本号都会递增，因此改密码会让所有设备上的旧会话立即失效，不必等 7 天自然过期。
+- 登录限流 5 次/60 秒/IP，文件、助手对话、模型目录联网获取、设置保存、模拟引擎控制、会话增删等写操作/耗时端点均按端点分别限流；限流的 IP 提取只在 `TRUST_PROXY=1` 时信任反向代理转发的 `x-forwarded-for`（且只取其最右一跳），避免客户端伪造该头绕过限流。
+- 文件相关全部端点经统一的 `resolveSafe()` 路径沙箱（`lib/files/sandbox.ts`），覆盖路径穿越、符号链接逃逸、NUL 字节等场景；沙箱根目录固定只从 `WORKSPACE_DIR` 环境变量读取、不可通过设置 API 在运行时改写（可写的沙箱根会让路径沙箱形同虚设）。工作区文件的写入/新建/删除/重命名均已序列化，避免并发请求互相踩踏。
+- AI 助手工具（`list_files`/`read_file`/`write_file`）对未预期的文件系统错误统一返回脱敏文案，避免服务器内部路径通过工具结果泄露给外部 LLM API。
+- 已配置 CSP、`X-Frame-Options`、`X-Content-Type-Options`、`Referrer-Policy`、`Strict-Transport-Security`（Caddy 层）等安全响应头，其中的必要放宽项（如 Monaco 内联样式所需的 `style-src 'unsafe-inline'`、连接区可配置 iframe 所需的 `frame-src *`）均在代码注释中说明原因。
+- 模型 API Key 仅存于服务端数据目录，GET 接口一律打码返回，不进入客户端 bundle；写入版本历史的自动快照也会对 API Key 做脱敏处理，避免明文密钥在磁盘上多留一份历史副本。
+- AI 助手 / 模型目录联网获取所使用的 OpenAI 兼容 Base URL 是管理员在设置页填写的任意地址，出网前会做 SSRF 防护：解析后的 IP 不能落在回环/内网/链路本地范围内，且不跟随 HTTP 跳转。
+- `settings.json` 等运行时 JSON 数据的读改写通过按文件名串行化的队列保证原子性，避免并发写入互相覆盖丢更新；版本快照/恢复同样做了按文件序列化，避免临时文件命名冲突导致的历史记录损坏。
+- 部署镜像构建配有 `.dockerignore`，避免宿主机的 `node_modules`、运行时 `data/` 目录等被意外拷入 Docker 构建上下文/烤进镜像层。
+- `npm audit --production` 存在若干高危提示，均为 `next` 自身捆绑的间接依赖（`postcss`、`sharp`），已确认项目未使用 `next/image`（唯一会触发 `sharp` 的路径）；`postcss` 仅在构建期处理可信的第一方源码，不经手运行时/不可信输入。npm 建议的修复方案（降级到 `next@9.3.3`）属于依赖解析器的误导性建议，实际会移除远多于其修复的安全补丁（包括 `next` 中间件绕过漏洞 CVE-2025-29927 的修复），因此判定为可接受的已知风险，未采用。
 
 ## 目录结构简述
 

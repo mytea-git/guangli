@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCw, Check, Cpu, Globe } from "lucide-react";
+import { Check, Cpu, Globe } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useToastStore } from "@/stores/toastStore";
@@ -204,9 +204,6 @@ export default function ModelsPage() {
           </div>
         </>
       )}
-      <Button variant="ghost" onClick={load} className="self-start" title="刷新">
-        <RefreshCw size={14} />
-      </Button>
     </div>
   );
 }

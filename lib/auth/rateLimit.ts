@@ -53,9 +53,32 @@ export function checkRateLimit(
   return { allowed: true, retryAfterSec: 0 };
 }
 
-/** 从请求头取客户端 IP（Caddy/反代会设置 x-forwarded-for）。 */
+/**
+ * 从请求头取客户端 IP，用于按 IP 限流。
+ *
+ * 只有 TRUST_PROXY=1（生产环境经 Caddy 反代部署）时才读取
+ * `X-Forwarded-For`，并且只取最右一跳——反代（Caddy）会把自己直接
+ * 观测到的对端地址追加在已有 XFF 值之后，而不是替换它，所以最左边的
+ * 值可能是客户端自己塞入的伪造值，必须取最右边这一跳才是反代真正
+ * 看到的连接来源。
+ *
+ * 未设置 TRUST_PROXY（本地开发、或没有反代的直连部署）时完全不信任
+ * 这个头——否则任何直连客户端都能随意伪造 XFF，让每个请求落入全新的
+ * 限流桶，使登录爆破限流形同虚设。这种情况下退化为固定 key（所有
+ * 直连请求共享同一个桶）：更保守，但不会被绕过。
+ */
 export function clientIpFrom(req: { headers: { get(name: string): string | null } }): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  if (process.env.TRUST_PROXY === "1") {
+    const xff = req.headers.get("x-forwarded-for");
+    if (xff) {
+      const hops = xff
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (hops.length > 0) return hops[hops.length - 1];
+    }
+  }
+  return "local";
 }
 
 /**
