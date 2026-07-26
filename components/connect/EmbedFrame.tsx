@@ -21,13 +21,20 @@ export function EmbedFrame({ url }: { url: string }) {
     // chrome-error://chromewebdata/），而这个导航本身仍然会触发
     // iframe 的 onLoad——从父页面角度完全看不出区别，8 秒超时也
     // 派不上用场（因为 onLoad 已经"成功"触发了）。用一个并行的
-    // no-cors 预检测请求补上这个检测不到的场景：no-cors 模式下拿不到
-    // 响应内容，但网络层的连接失败依然会让 fetch reject，这个信号
-    // 不受 iframe onLoad 的语义影响。
+    // 可达性探测补上这个检测不到的场景。探测请求打到本站同源接口
+    // `/api/connect/probe`（由服务端代为发起对目标地址的请求），而不是
+    // 直接从浏览器 fetch 目标地址——直接 fetch 会被 CSP 的
+    // `connect-src 'self'` 拦截（那正是我们想保留的默认收紧行为，不为
+    // 这一个功能放宽全站 connect-src）。
     const probeController = new AbortController();
-    fetch(url, { mode: "no-cors", signal: probeController.signal }).catch(() => {
-      if (!cancelled) setStatus((s) => (s === "ready" ? s : "unreachable"));
-    });
+    fetch("/api/connect/probe", { signal: probeController.signal })
+      .then((res) => res.json())
+      .then((data: { reachable?: boolean }) => {
+        if (!cancelled && !data.reachable) setStatus((s) => (s === "ready" ? s : "unreachable"));
+      })
+      .catch(() => {
+        if (!cancelled) setStatus((s) => (s === "ready" ? s : "unreachable"));
+      });
 
     // 目标网络可达、但加载异常缓慢，或者会加载成功却被 frame-ancestors
     // 拒绝渲染（这种情况下大多数浏览器同样会触发 onLoad，此超时更多是
