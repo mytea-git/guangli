@@ -1,0 +1,41 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      - AUTH_SECRET=${AUTH_SECRET:?请在 .env 中设置 AUTH_SECRET}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-guangli-admin}
+      - DATA_DIR=/data
+      - WORKSPACE_DIR=/workspace
+      - TRUST_PROXY=1
+    volumes:
+      - guangli-data:/data
+      - guangli-workspace:/workspace
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/login').then(r=>process.exit(r.ok||r.status===200?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  guangli-data:
+  guangli-workspace:
+  caddy-data:
+  caddy-config:

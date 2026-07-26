@@ -1,0 +1,18 @@
+# 自定义域名：修改 .env 中的 DOMAIN 后重启 caddy 服务即可，证书自动签发
+{$DOMAIN:localhost} {
+	encode zstd gzip
+
+	# SSE 事件流：禁用压缩缓冲，保证实时推送即时到达
+	@sse {
+		header Accept text/event-stream
+	}
+	handle @sse {
+		reverse_proxy app:3000 {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		reverse_proxy app:3000
+	}
+}
