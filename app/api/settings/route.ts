@@ -1,20 +1,10 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireAuth, AuthError } from "@/lib/auth/requireAuth";
-import { getSettings, updateSettings, SettingsSchema, type Settings } from "@/lib/store/settings";
+import { getSettings, updateSettings, SettingsSchema } from "@/lib/store/settings";
+import { redactSettings as redact } from "@/lib/store/settingsRedact";
 
 export const runtime = "nodejs";
-
-// apiKey 只应停留在服务端；对客户端一律打码，只暴露"是否已配置"。
-function redact(settings: Settings) {
-  const { assistant, ...rest } = settings;
-  const { apiKey: _apiKey, ...assistantRest } = assistant;
-  void _apiKey;
-  return {
-    ...rest,
-    assistant: { ...assistantRest, hasApiKey: Boolean(assistant.apiKey) },
-  };
-}
 
 async function checkAuth(req: NextRequest) {
   try {

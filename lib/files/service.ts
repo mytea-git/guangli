@@ -26,6 +26,33 @@ export async function getWorkspaceRoot(): Promise<string> {
   return path.resolve(process.cwd(), settings.workspaceRoot);
 }
 
+export interface ShallowEntry {
+  name: string;
+  path: string;
+  type: "file" | "dir";
+  sizeBytes?: number;
+}
+
+/** 非递归地列出一层目录内容——AI 助手的 list_files 工具用这个，不需要整棵树。 */
+export async function listDirShallow(relPath: string): Promise<ShallowEntry[]> {
+  const root = await getWorkspaceRoot();
+  const abs = resolveSafe(root, relPath || "/");
+  const dirents = await fs.readdir(abs, { withFileTypes: true });
+  const entries: ShallowEntry[] = [];
+  for (const dirent of dirents) {
+    if (IGNORED_NAMES.has(dirent.name) || dirent.name.startsWith(".git")) continue;
+    const entryAbs = path.join(abs, dirent.name);
+    const entryRel = relPath ? `${relPath}/${dirent.name}` : dirent.name;
+    if (dirent.isDirectory()) {
+      entries.push({ name: dirent.name, path: entryRel, type: "dir" });
+    } else if (dirent.isFile()) {
+      const stat = await fs.stat(entryAbs);
+      entries.push({ name: dirent.name, path: entryRel, type: "file", sizeBytes: stat.size });
+    }
+  }
+  return entries.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export async function getFileTree(): Promise<FileTreeEntry> {
   const root = await getWorkspaceRoot();
   await fs.mkdir(root, { recursive: true });

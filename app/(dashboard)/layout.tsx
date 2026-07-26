@@ -2,7 +2,9 @@ import type { ReactNode } from "react";
 import { TopNav } from "@/components/layout/TopNav";
 import { SettingsHydrator } from "@/components/layout/SettingsHydrator";
 import { Toaster } from "@/components/ui/Toaster";
+import { AssistantSidebar } from "@/components/assistant/AssistantSidebar";
 import { getSettings } from "@/lib/store/settings";
+import { redactSettings } from "@/lib/store/settingsRedact";
 import type { ClientSettings } from "@/stores/settingsStore";
 
 // 必须强制动态渲染：getSettings() 读取的是运行时 /data/settings.json
@@ -13,19 +15,14 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
   const settings = await getSettings();
-  const { assistant, ...rest } = settings;
-  const { apiKey, ...assistantRest } = assistant;
-  void apiKey;
-  const clientSettings: ClientSettings = {
-    ...rest,
-    assistant: { ...assistantRest, hasApiKey: Boolean(apiKey) },
-  };
+  const clientSettings = redactSettings(settings) as ClientSettings;
 
   return (
     <div className="flex min-h-screen flex-col">
       <SettingsHydrator initial={clientSettings} />
       <TopNav initialSettings={clientSettings} />
       <main className="mx-auto w-full max-w-[1400px] flex-1 px-3 py-4 sm:px-6 sm:py-6">{children}</main>
+      <AssistantSidebar initialEnabled={clientSettings.assistant.enabled} />
       <Toaster />
     </div>
   );
