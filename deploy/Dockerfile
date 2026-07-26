@@ -5,7 +5,11 @@ FROM node:22-alpine AS base
 FROM base AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN --mount=type=cache,target=/root/.npm npm ci
+# --ignore-scripts: scripts/copy-monaco-assets.mjs (referenced by the
+# postinstall hook) isn't copied into this layer yet — it only needs
+# node_modules cached here. We run it explicitly in the builder stage
+# below, once the full source tree is present.
+RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts
 
 # ---- build ----
 FROM base AS builder
@@ -13,6 +17,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+RUN node scripts/copy-monaco-assets.mjs
 RUN npm run build
 
 # ---- runtime ----

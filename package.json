@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "postinstall": "node scripts/copy-monaco-assets.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

@@ -18,6 +18,9 @@ next-env.d.ts
 npm-debug.log*
 .vscode/
 
+# generated: self-hosted Monaco AMD assets (scripts/copy-monaco-assets.mjs)
+/public/monaco/
+
 # env
 .env
 .env.local

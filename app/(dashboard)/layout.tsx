@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { TopNav } from "@/components/layout/TopNav";
 import { SettingsHydrator } from "@/components/layout/SettingsHydrator";
+import { Toaster } from "@/components/ui/Toaster";
 import { getSettings } from "@/lib/store/settings";
 import type { ClientSettings } from "@/stores/settingsStore";
 
@@ -25,6 +26,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       <SettingsHydrator initial={clientSettings} />
       <TopNav initialSettings={clientSettings} />
       <main className="mx-auto w-full max-w-[1400px] flex-1 px-3 py-4 sm:px-6 sm:py-6">{children}</main>
+      <Toaster />
     </div>
   );
 }

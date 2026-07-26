@@ -3,7 +3,10 @@ import type { NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth/session";
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // /monaco/* 是自托管的 Monaco 编辑器静态资源（public/monaco，见
+  // scripts/copy-monaco-assets.mjs），不含任何敏感数据，同 _next/static
+  // 一样不需要鉴权，否则编辑器的懒加载语言 worker 请求会被 307 到登录页。
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|monaco/).*)"],
 };
 
 const PUBLIC_PATHS = new Set(["/login", "/api/auth/login"]);
