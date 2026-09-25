@@ -85,3 +85,6 @@ scripts/      构建/运维脚本（Monaco 资源拷贝、密码哈希工具等�
 workspace-demo/  演示用受管工作区（示例 SOUL.md 等人格文件）
 deploy/       Dockerfile、docker-compose.yml、Caddyfile
 ```
+## License
+
+Guangli is licensed under the [MIT License](LICENSE).
